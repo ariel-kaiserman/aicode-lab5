@@ -2,6 +2,7 @@
 
 from computer import choose_move
 from game import (
+    copy_position,
     legal_moves,
     move,
     new_position,
@@ -26,12 +27,28 @@ class Session:
             raise ValueError("Unknown opponent")
         self.position = new_position()
         self.notation = []
+        # Positions before each played move, oldest first; undo returns to the last one.
+        self.history = []
         self.opponent = opponent
 
     def play(self, source, target):
+        before = copy_position(self.position)
         label = move(self.position, source, target)
+        self.history.append(before)
         self.notation.append(label)
         self.after_move()
+
+    def undo(self):
+        """Take back the last move; against the computer, back to the player's turn.
+
+        The restored position brings back captured pieces and the side to move.
+        At the beginning of the game this does nothing.
+        """
+        while self.history:
+            self.position = self.history.pop()
+            self.notation.pop()
+            if self.opponent != "computer" or self.position[1] == "w":
+                break
 
     def after_move(self):
         pass
@@ -42,6 +59,7 @@ class Session:
             "turn": self.position[1],
             "moves": self.notation,
             "opponent": self.opponent,
+            "can_undo": bool(self.history),
             "status": status(self.position),
             "winner": winner(self.position),
             **self.sidebar(),
@@ -66,6 +84,8 @@ class Session:
             self.play(*choose_move(self.position))
         elif command == "legal":
             return {"targets": legal_moves(self.position, action.get("source"))}
+        elif command == "undo":
+            self.undo()
         elif command == "new":
             self.__init__(action.get("opponent", "human"))
         elif command == "promotion-setup":
