@@ -10,7 +10,7 @@ async function request(action) {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error);
-  if (action.action === 'move' || action.action === 'computer-move') placeSound(result.moves.at(-1).includes('x'));
+  if (['move', 'computer-move', 'redo'].includes(action.action)) placeSound(Boolean(result.moves.at(-1)?.includes('x')));
   return result;
 }
 
@@ -91,6 +91,7 @@ function render() {
     return item;
   }));
   document.querySelector('#undo').disabled = !state.can_undo;
+  document.querySelector('#redo').disabled = !state.can_redo;
   document.querySelector('#captured-panel').hidden = !Object.hasOwn(state, 'captured');
   const captured = state.captured || [];
   document.querySelector('#captured').replaceChildren(...captured.map(pieceGlyph));
@@ -196,6 +197,8 @@ document.querySelector('#controls').onclick = async event => {
     state = await request({action: button.dataset.action, opponent: button.dataset.opponent});
     selected = null; targets = [];
     message.textContent = ''; render();
+    // After a redone player move, the computer chooses its reply again.
+    await computerReply();
   } catch (error) { message.textContent = error.message; }
   finally { busy = false; }
 };
