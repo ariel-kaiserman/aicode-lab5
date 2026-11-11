@@ -139,9 +139,42 @@ async function clickSquare(square) {
   finally { busy = false; }
 }
 
+// Save downloads the game as a JSON file; Load reads such a file back, so a game can be
+// resumed after the server restarts.
+function saveGame(game) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(game, null, 2)], {type: 'application/json'}));
+  link.download = 'chess-game.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+const loadFile = document.querySelector('#load-file');
+loadFile.onchange = async () => {
+  const file = loadFile.files[0];
+  loadFile.value = '';
+  if (!file || busy) return;
+  busy = true;
+  message.textContent = '';
+  try {
+    let game;
+    try { game = JSON.parse(await file.text()); } catch { throw new Error('Not a saved chess game'); }
+    state = await request({action: 'load', game});
+    selected = null; targets = []; render();
+    await computerReply();
+  } catch (error) { message.textContent = error.message; }
+  finally { busy = false; }
+};
+
 document.querySelector('#controls').onclick = async event => {
   const button = event.target.closest('button');
   if (!button?.dataset.action || busy) return;
+  if (button.dataset.action === 'load') { loadFile.click(); return; }
+  if (button.dataset.action === 'save') {
+    try { saveGame((await request({action: 'save'})).game); message.textContent = ''; }
+    catch (error) { message.textContent = error.message; }
+    return;
+  }
   busy = true;
   try {
     state = await request({action: button.dataset.action, opponent: button.dataset.opponent});

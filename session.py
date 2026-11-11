@@ -11,6 +11,10 @@ from game import (
 )
 
 
+SAVE_FORMAT = "chess-workshop-save"
+SAVE_VERSION = 1
+
+
 # Legal from the standard starting position under this game's rules.
 # Next move: b7-a8, capturing a rook and reaching the last rank.
 PROMOTION_SETUP = [
@@ -27,15 +31,20 @@ class Session:
             raise ValueError("Unknown opponent")
         self.position = new_position()
         self.notation = []
-        # Positions before each played move, oldest first; undo returns to the last one.
+        # Every move played from the start, as [source, target]. Replaying it rebuilds
+        # each earlier position, which is what save/load needs to keep undo possible.
         self.history = []
+        # Positions before each played move, oldest first; undo returns to the last one.
+        # Kept in step with history; load rebuilds it by replaying the moves.
+        self.positions = []
         self.opponent = opponent
 
     def play(self, source, target):
         before = copy_position(self.position)
         label = move(self.position, source, target)
-        self.history.append(before)
+        self.positions.append(before)
         self.notation.append(label)
+        self.history.append([source, target])
         self.after_move()
 
     def undo(self):
@@ -44,11 +53,46 @@ class Session:
         The restored position brings back captured pieces and the side to move.
         At the beginning of the game this does nothing.
         """
-        while self.history:
-            self.position = self.history.pop()
+        while self.positions:
+            self.position = self.positions.pop()
             self.notation.pop()
+            self.history.pop()
             if self.opponent != "computer" or self.position[1] == "w":
                 break
+
+    def save(self):
+        """Return everything needed to resume this game, as JSON-ready data."""
+        return {
+            "format": SAVE_FORMAT,
+            "version": SAVE_VERSION,
+            "opponent": self.opponent,
+            "board": dict(self.position[0]),
+            "turn": self.position[1],
+            "notation": list(self.notation),
+            "history": [list(entry) for entry in self.history],
+        }
+
+    def load(self, data):
+        """Replace this game with a saved one. On any error the current game is kept."""
+        if not isinstance(data, dict) or data.get("format") != SAVE_FORMAT:
+            raise ValueError("Not a saved chess game")
+        if data.get("version") != SAVE_VERSION:
+            raise ValueError("Unsupported save version")
+        history = data.get("history")
+        if not isinstance(history, list) or not all(
+                isinstance(entry, list) and len(entry) == 2 for entry in history):
+            raise ValueError("Saved game has an invalid move history")
+        restored = Session(data.get("opponent"))
+        try:
+            for source, target in history:
+                restored.play(source, target)
+        except ValueError:
+            raise ValueError("Saved game contains an illegal move") from None
+        if (restored.position[0] != data.get("board")
+                or restored.position[1] != data.get("turn")
+                or restored.notation != data.get("notation")):
+            raise ValueError("Saved game does not match its move history")
+        self.__dict__ = restored.__dict__
 
     def after_move(self):
         pass
@@ -59,7 +103,7 @@ class Session:
             "turn": self.position[1],
             "moves": self.notation,
             "opponent": self.opponent,
-            "can_undo": bool(self.history),
+            "can_undo": bool(self.positions),
             "status": status(self.position),
             "winner": winner(self.position),
             **self.sidebar(),
@@ -86,6 +130,10 @@ class Session:
             return {"targets": legal_moves(self.position, action.get("source"))}
         elif command == "undo":
             self.undo()
+        elif command == "save":
+            return {"game": self.save()}
+        elif command == "load":
+            self.load(action.get("game"))
         elif command == "new":
             self.__init__(action.get("opponent", "human"))
         elif command == "promotion-setup":
