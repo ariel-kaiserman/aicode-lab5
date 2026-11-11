@@ -1,6 +1,7 @@
 """Application actions and information shown beside the board."""
 
 from computer import choose_move
+from captured import missing_pieces
 from game import (
     copy_position,
     legal_moves,
@@ -37,6 +38,7 @@ class Session:
         # Positions before each played move, oldest first; undo returns to the last one.
         # Kept in step with history; load rebuilds it by replaying the moves.
         self.positions = []
+        self.captured = []
         self.opponent = opponent
 
     def play(self, source, target):
@@ -59,6 +61,9 @@ class Session:
             self.history.pop()
             if self.opponent != "computer" or self.position[1] == "w":
                 break
+        # The captured display is derived from the board, so refresh it for the
+        # restored position; an undone capture leaves the display.
+        self.captured = missing_pieces(self.position)
 
     def save(self):
         """Return everything needed to resume this game, as JSON-ready data."""
@@ -95,7 +100,7 @@ class Session:
         self.__dict__ = restored.__dict__
 
     def after_move(self):
-        pass
+        self.captured = missing_pieces(self.position)
 
     def view(self):
         return {
@@ -114,7 +119,7 @@ class Session:
                 and status(self.position) not in ("checkmate", "stalemate"))
 
     def sidebar(self):
-        return {}
+        return {"captured": self.captured}
 
     def dispatch(self, action):
         command = action.get("action")
